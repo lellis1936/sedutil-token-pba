@@ -1,0 +1,28 @@
+name: build-sedtoken
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'src/sedtoken.c'
+      - '.github/workflows/build-sedtoken.yml'
+
+jobs:
+  build-linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build static sedtoken
+        run: |
+          mkdir -p out
+          gcc -static -Os -s -Wall -Wextra -o out/sedtoken-linux-x86_64 src/sedtoken.c
+          (cd out && sha256sum sedtoken-linux-x86_64 > sedtoken-linux-x86_64.sha256)
+      - name: Upload sedtoken artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sedtoken-linux-x86_64
+          path: |
+            out/sedtoken-linux-x86_64
+            out/sedtoken-linux-x86_64.sha256

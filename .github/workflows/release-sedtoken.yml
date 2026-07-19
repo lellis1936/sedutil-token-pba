@@ -1,0 +1,36 @@
+name: release-sedtoken
+
+# On a version tag, build sedtoken from source in CI and attach the binary and
+# its sha256 to the GitHub release, so end users have a permanent, anonymously
+# downloadable copy with CI provenance. Only sedtoken (original MIT code) is
+# ever released; PBA images are never uploaded.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build static sedtoken
+        run: |
+          mkdir -p out
+          gcc -static -Os -s -Wall -Wextra -o out/sedtoken-linux-x86_64 src/sedtoken.c
+          (cd out && sha256sum sedtoken-linux-x86_64 > sedtoken-linux-x86_64.sha256)
+          cat out/sedtoken-linux-x86_64.sha256
+      - name: Attach binary to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" \
+            out/sedtoken-linux-x86_64 \
+            out/sedtoken-linux-x86_64.sha256 \
+            --clobber

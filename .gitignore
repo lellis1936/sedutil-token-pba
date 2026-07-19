@@ -1,0 +1,15 @@
+# PBA disk images are never committed (Tier 0: no sedutil binaries in this repo)
+*.img
+*.img.gz
+
+# Prebuilt sedtoken binaries: CI builds these from src/sedtoken.c
+bin/
+
+# Personalization outputs and secrets — never commit shares or tokens
+machine-share.bin
+UNLOCK.BIN
+*.verify.txt
+
+# Python
+__pycache__/
+*.pyc
