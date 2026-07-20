@@ -6,7 +6,9 @@ This is a companion tool for [sedutil](https://github.com/Drive-Trust-Alliance/s
 
 The objective is to facilitate headless operation so that the machine can be booted without manual password entry.
 
-**You should be an experienced sedutil user if you intend to use this program to patch your PBA image.  You should have a tested, bootable sedutil flash drive as well as a tested, bootable sedutil recovery flash drive.  THIS IS NOT OPTIONAL!**
+**You should ALREADY be an experienced sedutil user who is CURRENTLY using a SEDUTIL UEFI64 PBA. You should have a tested, bootable sedutil flash drive as well as a tested, bootable sedutil recovery flash drive.  THESE REQUIREMENTS ARE NOT OPTIONAL, and if you do not meet them, you must not proceed**
+
+**Also make sure you have a full and current backup of the drive you intend to work on.  A configuration mistake in using this tool can cause you to lose access to your drive.  You have been warned!**
 
 ## No sedutil code or binaries in this repository
 
@@ -32,7 +34,6 @@ The personalizer needs a compatible sedutil UEFI PBA image as input. The tested 
 Other sedutil UEFI PBA images of the same shape (GPT with a FAT16 EFI System Partition containing `\EFI\BOOT\rootfs.cpio.xz` and `/sbin/linuxpba`) may work but are untested; the tool fails closed if the image doesn't match what it expects.
 
 **IMPORTANT.  You should use the same 64-bit UEFI PBA image that you currently have loaded to the boot drive.  This will avoid any risk of having to update UEFI NVRAM entries once you have loaded the new PBA image to the drive.**
-
 
 ## Host OS model
 
@@ -99,8 +100,7 @@ C:\SedutilTokenBuild\sedutil-token-personalized.img.gz
 C:\SedutilTokenBuild\sedutil-token-personalized.img.verify.txt
 ```
 
-**The files in this folder are sensitive.  Together (or even UNLOCK.BIN plus the image, which embeds the machine share) they reconstruct your sedutil password.  Keep the folder out of backups and cloud sync, and delete it after deployment — see step 6.**  
-
+**The files in this folder are sensitive.  Together (or even UNLOCK.BIN plus the image, which embeds the machine share) they reconstruct your sedutil password.  Keep the folder out of backups and cloud sync, and delete it after deployment — see step 6.**
 
 ### 3. Copy the USB token file
 
@@ -132,19 +132,41 @@ python sedutil_token_pba.py verify `
 
 ### 5. Test and install
 
-For a USB boot test, write the `.img.gz` to a spare USB stick with Balena Etcher or Rufus and boot it with the token stick also inserted.
+For a USB boot test, write the `.img.gz` to a spare USB stick with Balena Etcher or Rufus (I have had better luck with the latter) and boot it with the token stick also inserted.  **Make sure the resulting USB boots before proceeding with remaining steps.**
 
-To install into the drive's Shadow MBR, use the raw `.img` with `sedutil-cli` from rescue media (not from Windows booted off the protected drive):
+To install into the drive's MBR shadow area, use the `sedutil-cli --loadPBAimage` command.
 
 **BEFORE DOING SO, VERIFY THAT YOUR UEFI image source file is the one your boot drive is using. IF YOU CAN'T DO THAT, YOU SHOULD NOT CONTINUE SINCE YOU MIGHT LOSE THE ABILITY TO BOOT YOUR SYSTEM.**
+
+**It is also strongly recommended to have a bootable rescue tool with efibootmgr installed (the SEDUTIL Rescue environment does NOT include it).  A "System Rescue USB" (https://www.system-rescue.org/) can be used for this purpose**
 
 ```text
 sedutil-cli --loadPBAimage <password> sedutil-token-personalized.img \\.\PhysicalDrive0
 ```
+
 **THIS ASSUMES YOUR OPAL BOOT DRIVE IS PHYSICALDRIVE0**
 
+Passing the password on the command line leaves it in your shell history and process list — clear it afterward.
 
-Passing the password on the command line leaves it in your shell history and process list — clear the history afterward, and adjust the drive path (`\\.\PhysicalDrive0` on Windows, `/dev/sda`-style on Linux) to the protected drive.
+#### UEFI Entry Update
+
+You should not have to update your UEFI configuration after loading the image if your existing encrypted drive boots successfully.  Some older BIOS firmware may occasionally "lose" a UEFI entry.  So if your drive does not boot, a missing UEFI entry may be the problem.
+
+Check your BIOS UEFI boot configuration.  Some BIOS firmware allows you to create UEFI boot entries there.  If not, shut down your system, restart it and boot your rescue USB with efibootmgr.  Enter the following command:
+
+```text
+efibootmgr
+```
+
+If you don't see an entry for the SEDUTIL PBA, the following command can be used to add it:
+
+```text
+efibootmgr --create --disk /dev/sda --part 1 --label "SEDUTIL PBA" --loader '\EFI\BOOT\BOOTX64.EFI'
+```
+
+**Verify `/dev/sda` is actually your boot drive before running this** — check with `lsblk` or `fdisk -l` if unsure.
+
+This should create the UEFI entry you need to boot the drive.  Boot your system with the boot menu option (how you do this varies).  Make sure the new entry you just created exists.
 
 ### 6. Clean up
 
