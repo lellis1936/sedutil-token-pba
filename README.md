@@ -6,6 +6,8 @@ This is a companion tool for [sedutil](https://github.com/Drive-Trust-Alliance/s
 
 The objective is to facilitate headless operation so that the machine can be booted without manual password entry.
 
+**This is an unsupported personal project — issues and pull requests may not get a response. Use this tool at your own risk.**
+
 **You should ALREADY be an experienced sedutil user who is CURRENTLY using a SEDUTIL UEFI64 PBA. You should have a tested, bootable sedutil flash drive as well as a tested, bootable sedutil recovery flash drive.  THESE REQUIREMENTS ARE NOT OPTIONAL, and if you do not meet them, you must not proceed**
 
 **Also make sure you have a full and current backup of the drive you intend to work on.  A configuration mistake in using this tool can cause you to lose access to your drive.  You have been warned!**
