@@ -85,7 +85,7 @@ python sedutil_token_pba.py make-all `
   --out C:\SedutilTokenBuild
 ```
 
-(`--script` defaults to the included `pba\S99PBA.sh`.)
+This injects the included boot script (`pba\S99PBA.sh`) automatically; there's no need to pass `--script` unless you're using a customized one.
 
 Optionally add `--usb X:\` (your token stick's drive letter) to write `UNLOCK.BIN` directly to the stick as `X:\SEDUTIL\UNLOCK.BIN` instead of into `--out`. This is recommended: the two shares then never coexist in the output folder, and step 3 below is already done.
 
