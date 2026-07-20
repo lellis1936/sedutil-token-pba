@@ -58,7 +58,12 @@ def dir_entry(short8: bytes, ext3: bytes, attr: int, cluster: int, size: int) ->
     return bytes(e)
 
 
-def build_rootfs_xz(include_linuxpba: bool = True) -> bytes:
+# The stock ChubbyAnt S99PBA.sh, byte-identical across build variants since 2017.
+STOCK_S99 = b"#!/bin/sh\nclear\n/sbin/linuxpba 2>/tmp/pbaerror.log\n"
+
+
+def build_rootfs_xz(include_linuxpba: bool = True, include_s99: bool = True,
+                    s99_body: bytes = STOCK_S99) -> bytes:
     entries: list[stp.CpioEntry] = []
 
     def add(name: str, data: bytes, mode: int) -> None:
@@ -73,6 +78,8 @@ def build_rootfs_xz(include_linuxpba: bool = True) -> bytes:
         add("sbin/linuxpba", b"\x7fELF fake linuxpba for tests\n", stat.S_IFREG | 0o755)
     add("etc", b"", stat.S_IFDIR | 0o755)
     add("etc/init.d", b"", stat.S_IFDIR | 0o755)
+    if include_s99:
+        add("etc/init.d/S99PBA.sh", s99_body, stat.S_IFREG | 0o755)
     add("TRAILER!!!", b"", 0)
     cpio = stp.CpioNewc(entries).to_bytes()
     return lzma.compress(cpio, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32)
@@ -313,6 +320,29 @@ class TransformTests(unittest.TestCase):
         with self.assertRaises(stp.ToolError):
             self.transform(bad)
 
+    def test_missing_s99_refused(self):
+        # No S99PBA.sh in the input (e.g. a rescue image) — must be refused,
+        # since the tool replaces that script rather than creating it.
+        bad = self.dir / "no-s99.img"
+        bad.write_bytes(build_synthetic_pba(build_rootfs_xz(include_s99=False)))
+        with self.assertRaises(stp.ToolError):
+            self.transform(bad)
+
+    def test_non_esp_partition_rejected(self):
+        img = bytearray(build_synthetic_pba(build_rootfs_xz()))
+        # Corrupt the first partition's type GUID away from the ESP type.
+        e_off = 2 * SECTOR
+        img[e_off:e_off + 16] = uuid.uuid4().bytes_le
+        bad = self.dir / "notesp.img"
+        bad.write_bytes(bytes(img))
+        with self.assertRaises(stp.ToolError):
+            self.transform(bad)
+
+    def test_original_s99_recorded_in_report(self):
+        _, _, _, report = self.transform(self.input_img)
+        self.assertEqual(report["orig_s99_size"], len(STOCK_S99))
+        self.assertEqual(report["orig_s99_sha256"], stp.sha256_bytes(STOCK_S99))
+
     def test_refuses_overwrite_without_force(self):
         self.transform(self.input_img)
         with self.assertRaises(stp.ToolError):
@@ -327,14 +357,62 @@ class TransformTests(unittest.TestCase):
 
 
 class Fat16GuardTests(unittest.TestCase):
+    def base(self) -> tuple[bytearray, int]:
+        return bytearray(build_synthetic_pba(build_rootfs_xz())), 34 * SECTOR
+
     def test_fat12_sized_volume_rejected(self):
-        img = bytearray(build_synthetic_pba(build_rootfs_xz()))
-        part_off = 34 * SECTOR
+        img, part_off = self.base()
         # Shrink the sector count so the cluster count drops below the FAT16
         # minimum; the parser must refuse rather than misread FAT12 chains.
         img[part_off + 19:part_off + 21] = struct.pack("<H", 1 + 17 + 4 + 1000)
         with self.assertRaises(stp.ToolError):
             stp.Fat16Image(img, part_off)
+
+    def test_fat32_sized_volume_rejected(self):
+        img, part_off = self.base()
+        # Push the cluster count into FAT32 territory (>=65525) via the 32-bit
+        # total-sector field; must be rejected, not misparsed as FAT16.
+        img[part_off + 19:part_off + 21] = struct.pack("<H", 0)
+        img[part_off + 32:part_off + 36] = struct.pack("<I", 70000)
+        with self.assertRaises(stp.ToolError):
+            stp.Fat16Image(img, part_off)
+
+    def test_volume_exceeding_image_rejected(self):
+        img, part_off = self.base()
+        # totsec claims more sectors than the image actually contains; the
+        # constructor must reject rather than allow out-of-image access.
+        img[part_off + 19:part_off + 21] = struct.pack("<H", 4300)
+        with self.assertRaises(stp.ToolError):
+            stp.Fat16Image(img, part_off)
+
+    def test_chain_rejects_bad_cluster(self):
+        img, part_off = self.base()
+        fs = stp.Fat16Image(img, part_off)
+        fs.set_next_all(50, 0xFFF7)  # bad-cluster marker mid-chain
+        with self.assertRaises(stp.ToolError):
+            fs.chain(50)
+
+    def test_chain_rejects_cycle(self):
+        img, part_off = self.base()
+        fs = stp.Fat16Image(img, part_off)
+        fs.set_next_all(60, 61)
+        fs.set_next_all(61, 60)  # cycle
+        with self.assertRaises(stp.ToolError):
+            fs.chain(60)
+
+    def test_fragmented_directory_offset(self):
+        # The directory-entry write must follow the directory's cluster chain,
+        # not assume the clusters are physically contiguous.
+        img, part_off = self.base()
+        fs = stp.Fat16Image(img, part_off)
+        c1, c2 = 100, 200  # a two-cluster, non-adjacent directory chain
+        fs.set_next_all(c1, c2)
+        fs.set_next_all(c2, 0xFFFF)
+        entry = {"dir_start": c1, "dir_off": fs.cluster_size + 64}
+        off = fs.dir_entry_disk_offset(entry)
+        self.assertEqual(off, fs.clus_off(c2) + 64)
+        # The old contiguous assumption would have landed here instead:
+        self.assertNotEqual(off, fs.clus_off(c1) + fs.cluster_size + 64)
 
 
 if __name__ == "__main__":

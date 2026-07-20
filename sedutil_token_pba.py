@@ -291,10 +291,24 @@ class Fat16Image:
         self.cluster_size = self.spc * self.bps
         self.data_secs = self.totsec - (self.rsv + self.nfats * self.spf + self.root_size // self.bps)
         self.num_clusters = self.data_secs // self.spc
-        # Fewer than 4085 clusters means the volume is FAT12, whose packed
-        # 1.5-byte FAT entries this 2-byte reader would silently misparse.
-        if self.num_clusters < 4085:
-            fail("ESP has fewer than 4085 clusters (FAT12); only FAT16 PBA ESP images are supported.")
+        # FAT type is defined by cluster count: <4085 is FAT12 (packed 1.5-byte
+        # entries this 2-byte reader can't parse), >=65525 is FAT32 (different
+        # BPB and root-directory layout). Only FAT16 is supported.
+        if not 4085 <= self.num_clusters < 65525:
+            fail(f"ESP has {self.num_clusters} clusters; only FAT16 (4085..65524) PBA ESP images are supported.")
+        # A malformed BPB must not be able to steer reads or writes outside the
+        # image, and the FAT must be large enough to map every cluster. (The FAT
+        # volume may legitimately overhang the GPT partition slightly — real
+        # ChubbyAnt images do, by a few unused sectors — so that is not checked.)
+        volume_bytes = self.totsec * self.bps
+        if part_off + volume_bytes > len(self.image):
+            fail("FAT volume extends beyond the end of the image (malformed BPB).")
+        if self.spf * self.bps < (self.num_clusters + 2) * 2:
+            fail("FAT is too small to map all clusters (malformed BPB).")
+
+    @property
+    def max_cluster(self) -> int:
+        return self.num_clusters + 1
 
     def clus_off(self, c: int) -> int:
         return self.data_off + (c - 2) * self.cluster_size
@@ -312,7 +326,18 @@ class Fat16Image:
         out: list[int] = []
         seen: set[int] = set()
         c = start
-        while c >= 2 and c < 0xFFF8 and c not in seen:
+        # A first cluster of 0 denotes an empty file: no chain.
+        if c == 0:
+            return out
+        while True:
+            if c >= 0xFFF8:            # normal end-of-chain marker
+                break
+            if c == 0xFFF7:
+                fail("FAT chain references a bad cluster (0xFFF7); refusing (corrupt filesystem).")
+            if 0xFFF0 <= c <= 0xFFF6 or c < 2 or c > self.max_cluster:
+                fail(f"FAT chain references invalid cluster 0x{c:04x}; refusing (corrupt filesystem).")
+            if c in seen:
+                fail("Cycle detected in FAT cluster chain; refusing (corrupt filesystem).")
             out.append(c)
             seen.add(c)
             c = self.get_next(c)
@@ -367,6 +392,8 @@ class Fat16Image:
                 fail(f"FAT path not found in PBA image: {path}")
             cur = matches[0]
             if idx != len(parts) - 1:
+                if not (int(cur["attr"]) & 0x10):
+                    fail(f"Path component {p!r} is not a directory in the PBA image.")
                 start = int(cur["cluster"])
         assert cur is not None
         return cur
@@ -381,6 +408,20 @@ class Fat16Image:
 
     def read_fat(self) -> bytes:
         return bytes(self.image[self.fat_off:self.fat_off + self.spf * self.bps])
+
+    def dir_entry_disk_offset(self, e: dict[str, object]) -> int:
+        # e["dir_off"] is an offset into the directory's *concatenated* cluster
+        # chain. The root directory is one contiguous region; a subdirectory
+        # can be fragmented, so map the logical offset back through its actual
+        # cluster chain rather than assuming physical contiguity.
+        logical = int(e["dir_off"])
+        if e["dir_start"] is None:
+            return self.root_off + logical
+        dchain = self.chain(int(e["dir_start"]))
+        chain_index, within = divmod(logical, self.cluster_size)
+        if chain_index >= len(dchain):
+            fail("Directory entry offset lies outside its directory cluster chain.")
+        return self.clus_off(dchain[chain_index]) + within
 
     def replace_file(self, path: str, data: bytes) -> None:
         e = self.find_path(path)
@@ -409,10 +450,7 @@ class Fat16Image:
         for idx, c in enumerate(used_chain):
             off = self.clus_off(c)
             self.image[off:off + self.cluster_size] = padded[idx * self.cluster_size:(idx + 1) * self.cluster_size]
-        if e["dir_start"] is None:
-            dir_off = self.root_off + int(e["dir_off"])
-        else:
-            dir_off = self.clus_off(int(e["dir_start"])) + int(e["dir_off"])
+        dir_off = self.dir_entry_disk_offset(e)
         self.image[dir_off + 28:dir_off + 32] = struct.pack("<I", len(data))
 
 
@@ -601,6 +639,9 @@ def transform_image(input_path: Path, machine_share_path: Path, sedtoken_path: P
 
     input_raw, input_was_gzip = read_input_image(input_path)
     before_gpt = parse_gpt(input_raw)
+    if before_gpt.first_part_type_guid.lower() != str(EFI_PARTITION_TYPE).lower():
+        fail(f"First GPT partition is not an EFI System Partition (type {before_gpt.first_part_type_guid}); "
+             "this does not look like a UEFI PBA image.")
     image = bytearray(input_raw)
     part_off = before_gpt.first_lba * SECTOR
     fs = Fat16Image(image, part_off)
@@ -612,6 +653,20 @@ def transform_image(input_path: Path, machine_share_path: Path, sedtoken_path: P
     archive = CpioNewc.read(rootfs_cpio)
     if not archive.has("sbin/linuxpba"):
         fail("Input PBA rootfs does not contain /sbin/linuxpba; refusing to transform.")
+
+    # S99PBA.sh is replaced, not augmented, so it must already exist. Every
+    # bootable buildroot PBA has carried it (identically) since 2017; only
+    # rescue images strip it, and those are not valid personalization targets.
+    orig_s99 = archive.find("etc/init.d/S99PBA.sh")
+    if orig_s99 is None:
+        fail("Input rootfs has no /etc/init.d/S99PBA.sh; this does not look like a bootable "
+             "sedutil PBA (rescue images strip it). Refusing to transform.")
+    # Capture before upsert_file mutates this entry object in place.
+    orig_s99_data = orig_s99.data
+    if b"linuxpba" not in orig_s99_data:
+        print("WARNING: the existing /etc/init.d/S99PBA.sh does not reference linuxpba; you may be "
+              "replacing a customized boot script. Its hash is recorded in the verify report.",
+              file=sys.stderr)
 
     archive.ensure_dir("etc/sedutil")
     archive.upsert_file("sbin/sedtoken", sedtoken, stat.S_IFREG | 0o755)
@@ -641,6 +696,8 @@ def transform_image(input_path: Path, machine_share_path: Path, sedtoken_path: P
         "output_partition_guid": after_gpt.first_part_unique_guid,
         "rootfs_xz_old_size": len(rootfs_xz),
         "rootfs_xz_new_size": len(new_xz),
+        "orig_s99_sha256": sha256_bytes(orig_s99_data),
+        "orig_s99_size": len(orig_s99_data),
         "raw_sha256": sha256_file(raw_out),
         "gz_sha256": sha256_file(gz_out),
         "machine_share_sha256": sha256_bytes(machine_share),
