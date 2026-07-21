@@ -77,6 +77,13 @@ gcc -static -Os -s -Wall -Wextra -o sedtoken-linux-x86_64 src/sedtoken.c
 sha256sum sedtoken-linux-x86_64
 ```
 
+For a much smaller static binary (musl libc instead of glibc; this is what CI builds for Releases), install `musl-tools` and use `musl-gcc` instead:
+
+```sh
+musl-gcc -static -Os -s -Wall -Wextra -o sedtoken-linux-x86_64 src/sedtoken.c
+sha256sum sedtoken-linux-x86_64
+```
+
 ### 2. All-in-one local build
 
 This creates both shares and a personalized PBA image. It accepts either `.img` or `.img.gz` input and produces both `.img` and `.img.gz` output. It prompts for the drive password.
