@@ -13,3 +13,6 @@ UNLOCK.BIN
 # Python
 __pycache__/
 *.pyc
+
+# Local Claude Code continuation notes — not published
+CLAUDE.md
