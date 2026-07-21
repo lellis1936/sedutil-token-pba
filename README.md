@@ -1,5 +1,7 @@
 # sedutil-token-pba
 
+<img width="580" height="434" alt="sedutil-token-pba-boot" src="https://github.com/user-attachments/assets/bfdb7bd6-40e9-45a8-8f47-19203570c5aa" />
+
 USB-token unlock for sedutil (TCG Opal) pre-boot authentication.
 
 This is a companion tool for [sedutil](https://github.com/Drive-Trust-Alliance/sedutil), the Drive Trust Alliance's self-encrypting-drive utility. It takes an existing sedutil UEFI PBA image and produces a personalized copy that unlocks the drive automatically when a USB token is plugged in at boot, falling back to the normal keyboard prompt when the token is absent. It is developed and tested against PBA images from the maintained [ChubbyAnt sedutil fork](https://github.com/ChubbyAnt/sedutil).
