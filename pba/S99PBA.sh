@@ -1,7 +1,18 @@
 #!/bin/sh
 clear
 
-echo "sedutil token PBA"
+if [ -f /etc/sedutil/build-info.txt ]; then
+    cat /etc/sedutil/build-info.txt
+else
+    echo "sedutil token PBA"
+fi
+echo ""
+
+if [ -f /etc/sedutil/source-image.txt ]; then
+    echo "Base image: $(cat /etc/sedutil/source-image.txt)"
+    echo ""
+fi
+
 echo "Searching for USB unlock token; keyboard fallback after ~5 seconds."
 
 MACHINE_SHARE=/etc/sedutil/machine-share.bin
@@ -9,6 +20,23 @@ TOKEN_MOUNT=/mnt/sedtoken
 LINUXPBA=/sbin/linuxpba
 MAX_SCANS=5
 SLEEP_SECS=1
+
+# Devices whose token file has already been read and cryptographically
+# rejected. reconstruct_password() is deterministic, so re-trying the same
+# bytes on a later scan can never succeed; skip them instead of re-mounting
+# and re-reporting the same failure every scan.
+FAILED_DEVS=""
+
+mark_failed() {
+    FAILED_DEVS="$FAILED_DEVS $1"
+}
+
+already_failed() {
+    case " $FAILED_DEVS " in
+        *" $1 "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 try_token() {
     token_file="$1"
@@ -27,13 +55,20 @@ try_token() {
 try_mount_and_token() {
     dev="$1"
 
+    already_failed "$dev" && return 1
+
     if /bin/mount -t vfat -o ro "/dev/$dev" "$TOKEN_MOUNT" 2>/dev/null; then
         if [ -f "$TOKEN_MOUNT/SEDUTIL/UNLOCK.BIN" ]; then
-            echo "USB unlock token accepted on /dev/$dev. Unlocking..."
+            echo "Token file found on /dev/$dev, attempting unlock..."
             try_token "$TOKEN_MOUNT/SEDUTIL/UNLOCK.BIN"
             result=$?
             /bin/umount "$TOKEN_MOUNT" 2>/dev/null
-            [ $result -eq 0 ] && return 0
+            if [ $result -eq 0 ]; then
+                echo "Unlocked using token on /dev/$dev."
+                return 0
+            fi
+            echo "Token on /dev/$dev did not unlock; continuing scan."
+            mark_failed "$dev"
         else
             /bin/umount "$TOKEN_MOUNT" 2>/dev/null
         fi

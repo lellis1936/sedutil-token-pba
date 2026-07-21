@@ -35,6 +35,11 @@ from typing import Iterable, Optional
 
 PY_MIN = (3, 12)
 
+# Keep in lockstep with the git release tag (vX.Y.Z) -- bump this in the same
+# commit that gets tagged for release.
+__version__ = "1.0.1"
+TOOL_NAME = "sedutil-token-pba"
+
 SHARE_LEN = 512
 HEADER_LEN = 32
 FILE_LEN = HEADER_LEN + SHARE_LEN
@@ -668,10 +673,14 @@ def transform_image(input_path: Path, machine_share_path: Path, sedtoken_path: P
               "replacing a customized boot script. Its hash is recorded in the verify report.",
               file=sys.stderr)
 
+    source_image_name = input_path.name
     archive.ensure_dir("etc/sedutil")
     archive.upsert_file("sbin/sedtoken", sedtoken, stat.S_IFREG | 0o755)
     archive.upsert_file("etc/init.d/S99PBA.sh", script, stat.S_IFREG | 0o755)
     archive.upsert_file("etc/sedutil/machine-share.bin", machine_share, stat.S_IFREG | 0o600)
+    archive.upsert_file("etc/sedutil/source-image.txt", (source_image_name + "\n").encode("utf-8"), stat.S_IFREG | 0o644)
+    build_info = f"{TOOL_NAME} v{__version__}"
+    archive.upsert_file("etc/sedutil/build-info.txt", (build_info + "\n").encode("utf-8"), stat.S_IFREG | 0o644)
 
     new_cpio = archive.to_bytes()
     new_xz = lzma.compress(new_cpio, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32, preset=0)
@@ -685,6 +694,8 @@ def transform_image(input_path: Path, machine_share_path: Path, sedtoken_path: P
 
     report = {
         "input": str(input_path),
+        "source_image_name": source_image_name,
+        "build_info": build_info,
         "input_was_gzip": input_was_gzip,
         "output_raw": str(raw_out),
         "output_gz": str(gz_out),
@@ -759,6 +770,12 @@ def inspect_image(image_path: Path, machine_share_path: Optional[Path] = None) -
         result["sedtoken_size"] = len(sedtoken.data)
         result["sedtoken_sha256"] = sha256_bytes(sedtoken.data)
         result["sedtoken_mode_octal"] = oct(sedtoken.mode)
+    source_image = archive.find("etc/sedutil/source-image.txt")
+    if source_image:
+        result["embedded_source_image_name"] = source_image.data.decode("utf-8", "replace").strip()
+    build_info = archive.find("etc/sedutil/build-info.txt")
+    if build_info:
+        result["embedded_build_info"] = build_info.data.decode("utf-8", "replace").strip()
     return result
 
 
@@ -896,7 +913,7 @@ def add_password_args(p: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="sedutil PBA USB-token personalizer")
-    parser.add_argument("--version", action="version", version="sedutil_token_pba.py 1.0.0")
+    parser.add_argument("--version", action="version", version=f"sedutil_token_pba.py {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("create-token", help="Generate machine-share.bin and UNLOCK.BIN locally")
