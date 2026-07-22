@@ -47,7 +47,7 @@ Other sedutil UEFI PBA images of the same shape (GPT with a FAT16 EFI System Par
 
 ## Requirements
 
-Python **3.12+**. No third-party packages — standard library only. The script runs on Windows or Linux, but has only been tested under Windows.
+Python **3.12+**. No third-party packages — standard library only. The script runs on Windows or Linux; CI tests both (see the `tests` workflow).
 
 The multi-line command examples below use PowerShell backtick (`` ` ``) line continuation, so run them in PowerShell (5.1+, built into Windows 10/11) — not cmd.exe or bash. To use another shell, join each command onto a single line.
 
