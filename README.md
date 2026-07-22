@@ -14,6 +14,8 @@ The objective is to facilitate headless operation so that the machine can be boo
 
 **Also make sure you have a full and current backup of the drive you intend to work on.  A configuration mistake in using this tool can cause you to lose access to your drive.  You have been warned!**
 
+**You MUST remember the drive unlock password you enter during `make-all` / `create-token`. The USB token is a convenience — it is NOT a substitute for knowing your password. If you lose the token and have forgotten the password, there is NO recovery: the drive is permanently inaccessible. Write the password down and store it in a physically secure location separate from the token and the machine.**
+
 ## No sedutil code or binaries in this repository
 
 This repository intentionally contains **no sedutil source code, binaries, or PBA disk images**, and neither its releases nor its CI ever distribute them. You bring your own base PBA image (see below); this tool only rewrites your local copy of it. Everything in this repository — the Python personalizer and the small C `sedtoken` helper — is original, MIT-licensed code.
