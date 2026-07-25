@@ -683,7 +683,15 @@ def transform_image(input_path: Path, machine_share_path: Path, sedtoken_path: P
     archive.upsert_file("etc/sedutil/build-info.txt", (build_info + "\n").encode("utf-8"), stat.S_IFREG | 0o644)
 
     new_cpio = archive.to_bytes()
-    new_xz = lzma.compress(new_cpio, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32, preset=0)
+    # Source PBA rootfs images are built with xz -9 --check=crc32 (64 MiB
+    # dictionary) -- verified against both tested base images and a third
+    # sedutil build, where preset=9 reproduces rootfs.cpio.xz byte-for-byte.
+    # We use xz's default -6 instead: within ~1% of that size, but an 8 MiB
+    # dictionary needs ~90 MB of encoder memory rather than ~700 MB. Going lower
+    # is a false economy -- preset 0 is fast but inflates the rootfs ~18% over
+    # what the base image shipped, which eats ESP headroom on fuller sources.
+    print("Compressing the new root filesystem; this may take a minute...", flush=True)
+    new_xz = lzma.compress(new_cpio, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32, preset=6)
     fs.replace_file(ROOTFS_PATH, new_xz)
     output_raw = bytes(image)
     after_gpt = parse_gpt(output_raw)
