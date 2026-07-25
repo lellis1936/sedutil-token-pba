@@ -4,7 +4,7 @@
 
 USB-token unlock for sedutil (TCG Opal) pre-boot authentication.
 
-This is a companion tool for [sedutil](https://github.com/Drive-Trust-Alliance/sedutil), the Drive Trust Alliance's self-encrypting-drive utility. It takes an existing sedutil UEFI PBA image and produces a personalized copy that unlocks the drive automatically when a USB token is plugged in at boot, falling back to the normal keyboard prompt when the token is absent. It is developed and tested against PBA images from the maintained [ChubbyAnt sedutil fork](https://github.com/ChubbyAnt/sedutil).
+This is a companion tool for [sedutil](https://github.com/Drive-Trust-Alliance/sedutil), the Drive Trust Alliance's self-encrypting-drive utility. It takes an existing sedutil UEFI PBA image and produces a personalized copy that unlocks the drive automatically when a USB token is plugged in at boot, falling back to the normal keyboard prompt when the token is absent. It is developed and tested against the [Drive Trust Alliance](https://github.com/Drive-Trust-Alliance/sedutil) UEFI64 PBA and the maintained [ChubbyAnt sedutil fork](https://github.com/ChubbyAnt/sedutil) PBA.
 
 The objective is to facilitate headless operation so that the machine can be booted without manual password entry.
 
@@ -31,13 +31,14 @@ Neither file alone reveals the password. At boot, the PBA's `S99PBA.sh` scans re
 
 ## Base image (bring your own)
 
-The personalizer needs a compatible sedutil UEFI PBA image as input. The tested base image is `UEFI64--1.15-5ad84d8.img.gz` from the ChubbyAnt sedutil releases:
+The personalizer needs a compatible sedutil UEFI PBA image as input. The following base images have been tested (hardware boot-tested with token unlock):
 
-| Base image | SHA-256 of decompressed `.img` |
-|---|---|
-| `UEFI64--1.15-5ad84d8.img.gz` | `bdcd0399a01b063c7132b79de3c3ecf7ec476fd4d40af677db3f221dcda36462` |
+| Base image | Source | SHA-256 of decompressed `.img` |
+|---|---|---|
+| `UEFI64.img.gz` | [Drive Trust Alliance](https://github.com/Drive-Trust-Alliance/sedutil) | `2f8f9f0499f7ad796465552e0bc7b3996ac1bacf2b977161de702b211c36654a` |
+| `UEFI64--1.15-5ad84d8.img.gz` | [ChubbyAnt fork](https://github.com/ChubbyAnt/sedutil) | `bdcd0399a01b063c7132b79de3c3ecf7ec476fd4d40af677db3f221dcda36462` |
 
-Other sedutil UEFI PBA images of the same shape (GPT with a FAT16 EFI System Partition containing `\EFI\BOOT\rootfs.cpio.xz` and `/sbin/linuxpba`) may work but are untested; the tool fails closed if the image doesn't match what it expects.
+Other sedutil UEFI PBA images of the same shape (GPT with a FAT16 EFI System Partition containing `\EFI\BOOT\rootfs.cpio.xz` and `/sbin/linuxpba`) should work but are untested; the tool fails closed if the image doesn't match what it expects.
 
 **IMPORTANT.  You should use the same 64-bit UEFI PBA image that you currently have loaded to the boot drive.  This will avoid any risk of having to update UEFI NVRAM entries once you have loaded the new PBA image to the drive.**
 
@@ -203,7 +204,7 @@ This tool does not create a brand-new FAT image from scratch. It uses the existi
 
 Limitations:
 
-- Supports compatible ChubbyAnt/sedutil UEFI PBA images only.
+- Supports compatible sedutil UEFI PBA images (tested with Drive Trust Alliance and ChubbyAnt fork PBAs).
 - Expects a GPT image with the first partition as a FAT16 EFI System Partition (FAT12-sized volumes are rejected).
 - Expects `\EFI\BOOT\rootfs.cpio.xz` and `/sbin/linuxpba`.
 - v1 share format supports printable ASCII passwords from 1 to 256 bytes.

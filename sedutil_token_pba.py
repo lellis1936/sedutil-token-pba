@@ -304,7 +304,7 @@ class Fat16Image:
         # A malformed BPB must not be able to steer reads or writes outside the
         # image, and the FAT must be large enough to map every cluster. (The FAT
         # volume may legitimately overhang the GPT partition slightly — real
-        # ChubbyAnt images do, by a few unused sectors — so that is not checked.)
+        # PBA images do, by a few unused sectors — so that is not checked.)
         volume_bytes = self.totsec * self.bps
         if part_off + volume_bytes > len(self.image):
             fail("FAT volume extends beyond the end of the image (malformed BPB).")
