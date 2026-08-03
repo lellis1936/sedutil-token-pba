@@ -13,13 +13,13 @@ if [ -f /etc/sedutil/source-image.txt ]; then
     echo ""
 fi
 
-echo "Searching for USB unlock token; keyboard fallback after ~5 seconds."
-
 MACHINE_SHARE=/etc/sedutil/machine-share.bin
 TOKEN_MOUNT=/mnt/sedtoken
 LINUXPBA=/sbin/linuxpba
 MAX_SCANS=5
 SLEEP_SECS=1
+ESC_KEY=$(printf '\033')
+ESC_WAIT_SECS=3
 
 # Devices whose token file has already been read and cryptographically
 # rejected. reconstruct_password() is deterministic, so re-trying the same
@@ -99,6 +99,18 @@ scan_once() {
 }
 
 if [ -f "$MACHINE_SHARE" ]; then
+    # Give a human at the console a way out before any token is tried: if a
+    # crypto-valid token reconstructs a password that's actually wrong for
+    # this drive, linuxpba reboots instead of returning to us, and the token
+    # would reconstruct the same wrong password every reboot forever. This
+    # pause runs before every attempt (i.e. again on each reboot), so ESC
+    # always breaks the loop for anyone watching.
+    echo "Press ESC within $ESC_WAIT_SECS seconds to skip the token and enter the password manually."
+    if read -t "$ESC_WAIT_SECS" -n 1 key 2>/dev/null && [ "$key" = "$ESC_KEY" ]; then
+        echo "ESC pressed; skipping token search."
+        exec /sbin/linuxpba 2>/tmp/pbaerror.log
+    fi
+
     mkdir -p "$TOKEN_MOUNT"
 
     scan=1
