@@ -1,6 +1,6 @@
 # sedutil-token-pba
 
-<img width="580" height="434" alt="sedutil-token-pba-boot" src="https://github.com/user-attachments/assets/bfdb7bd6-40e9-45a8-8f47-19203570c5aa" />
+<img width="580" height="434" alt="sedutil-token-pba-boot" src="docs/images/boot-screenshot.png" />
 
 USB-token unlock for sedutil (TCG Opal) pre-boot authentication.
 
@@ -102,7 +102,7 @@ python sedutil_token_pba.py make-all `
 
 This injects the included boot script (`pba\S99PBA.sh`) automatically; there's no need to pass `--script` unless you're using a customized one.
 
-Optionally add `--usb X:\` (your token stick's drive letter) to write `UNLOCK.BIN` directly to the stick as `X:\SEDUTIL\UNLOCK.BIN` instead of into `--out`. This is recommended: the two shares then never coexist in the output folder, and step 3 below is already done.
+Optionally add `--usb X:\` (your token stick's drive letter) to write `UNLOCK.BIN` directly to the stick as `X:\SEDUTIL\UNLOCK.BIN` instead of into `--out`. This is recommended: the two shares then never coexist in the output folder, and step 3 below is already done. **The stick must be formatted FAT or FAT32, not NTFS or exFAT** — the tool checks this and refuses otherwise, since an NTFS/exFAT stick looks completely normal from Windows but the PBA's Linux environment can't mount it at boot.
 
 Outputs:
 
@@ -119,6 +119,8 @@ C:\SedutilTokenBuild\sedutil-token-personalized.img.verify.txt
 ### 3. Copy the USB token file
 
 Skip this step if you used `--usb` in step 2.
+
+**The stick must be formatted FAT or FAT32, not NTFS or exFAT.** Windows will happily read/write `UNLOCK.BIN` on any filesystem, but the PBA's Linux environment only ever mounts token sticks as FAT — an NTFS/exFAT stick looks completely correct here and is silently invisible at boot. `install-token-usb` checks this and refuses otherwise.
 
 Manual copy is fine:
 
