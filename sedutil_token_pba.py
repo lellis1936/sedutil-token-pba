@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import binascii
+import ctypes
 import dataclasses
 import getpass
 import gzip
@@ -853,12 +854,61 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def get_volume_filesystem(root: Path) -> Optional[str]:
+    """Best-effort: the filesystem type name (e.g. "FAT32", "NTFS") for a
+    Windows volume root, or None if it can't be determined (not Windows, or
+    the API call failed). Callers should treat None as "unknown, don't
+    block on it" rather than as a failure."""
+    if os.name != "nt":
+        return None
+    try:
+        root_str = str(root)
+        if not root_str.endswith("\\"):
+            root_str += "\\"
+        fs_name_buf = ctypes.create_unicode_buffer(261)
+        vol_name_buf = ctypes.create_unicode_buffer(261)
+        serial = ctypes.c_uint(0)
+        max_component_len = ctypes.c_uint(0)
+        fs_flags = ctypes.c_uint(0)
+        ok = ctypes.windll.kernel32.GetVolumeInformationW(
+            ctypes.c_wchar_p(root_str),
+            vol_name_buf, ctypes.sizeof(vol_name_buf),
+            ctypes.byref(serial),
+            ctypes.byref(max_component_len),
+            ctypes.byref(fs_flags),
+            fs_name_buf, ctypes.sizeof(fs_name_buf),
+        )
+        if not ok:
+            return None
+        return fs_name_buf.value or None
+    except OSError:
+        return None
+
+
+def check_usb_filesystem(root: Path) -> None:
+    """Fail closed if root is a Windows volume we can positively identify as
+    NOT FAT-family. The PBA only ever mounts token sticks with
+    `mount -t vfat`; an NTFS/exFAT stick looks completely correct from
+    Windows (UNLOCK.BIN sits right there) but is silently invisible at
+    boot, since the mount itself never succeeds. Unknown/undetectable
+    filesystems are not blocked -- best-effort, not a hard requirement when
+    we can't actually check."""
+    fs = get_volume_filesystem(root)
+    if fs is None:
+        return
+    if fs.upper() not in ("FAT", "FAT16", "FAT32", "VFAT"):
+        fail(f"{root} is formatted {fs}, not FAT/FAT32. The PBA only mounts token "
+             f"sticks as FAT ('mount -t vfat'); an NTFS/exFAT stick looks correct "
+             f"from Windows but is invisible at boot. Reformat it as FAT32 first.")
+
+
 def cmd_install_token_usb(args: argparse.Namespace) -> int:
     src = Path(args.unlock_bin)
     data = read_share(src)
     root = Path(args.usb)
     if not root.exists() or not root.is_dir():
         fail(f"USB root does not exist or is not a directory: {root}")
+    check_usb_filesystem(root)
     dest_dir = root / "SEDUTIL"
     dest = dest_dir / "UNLOCK.BIN"
     if dest.exists() and not args.force:
@@ -880,6 +930,7 @@ def cmd_make_all(args: argparse.Namespace) -> int:
         root = Path(args.usb)
         if not root.exists() or not root.is_dir():
             fail(f"USB root does not exist or is not a directory: {root}")
+        check_usb_filesystem(root)
         unlock_out = root / "SEDUTIL" / "UNLOCK.BIN"
     password = validate_password(get_password_from_args(args))
     machine, unlock = create_share_files(password, out, force=args.force, unlock_out=unlock_out)

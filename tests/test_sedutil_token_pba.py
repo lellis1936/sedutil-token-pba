@@ -17,6 +17,7 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -211,6 +212,37 @@ class ShareTests(unittest.TestCase):
             stp.validate_password("x" * (stp.MAX_PASSWORD + 1))
         with self.assertRaises(stp.ToolError):
             stp.validate_password("tab\there")
+
+
+class UsbFilesystemCheckTests(unittest.TestCase):
+    """Mocks get_volume_filesystem so this doesn't depend on any real drive
+    letter's actual filesystem -- exercises check_usb_filesystem's logic
+    only."""
+
+    def test_ntfs_rejected(self):
+        with patch.object(stp, "get_volume_filesystem", return_value="NTFS"):
+            with self.assertRaises(stp.ToolError):
+                stp.check_usb_filesystem(Path("D:/"))
+
+    def test_exfat_rejected(self):
+        with patch.object(stp, "get_volume_filesystem", return_value="exFAT"):
+            with self.assertRaises(stp.ToolError):
+                stp.check_usb_filesystem(Path("D:/"))
+
+    def test_fat32_accepted(self):
+        with patch.object(stp, "get_volume_filesystem", return_value="FAT32"):
+            stp.check_usb_filesystem(Path("D:/"))  # must not raise
+
+    def test_fat16_accepted(self):
+        with patch.object(stp, "get_volume_filesystem", return_value="FAT"):
+            stp.check_usb_filesystem(Path("D:/"))  # must not raise
+
+    def test_unknown_filesystem_not_blocked(self):
+        # get_volume_filesystem returns None when it can't determine the
+        # filesystem (not Windows, or the API call failed) -- best-effort,
+        # must not block the caller in that case.
+        with patch.object(stp, "get_volume_filesystem", return_value=None):
+            stp.check_usb_filesystem(Path("D:/"))  # must not raise
 
 
 class CpioTests(unittest.TestCase):
